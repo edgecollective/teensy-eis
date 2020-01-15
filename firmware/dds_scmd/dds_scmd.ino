@@ -44,7 +44,7 @@ const int sineTableLength = 100;
 
 // Create an IntervalTimer objec, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
 IntervalTimer ddsTimer;
-float ddsLookupFeq  = 100.0;
+float ddsLookupFreq  = 100.0;
 int ddsTableLength = sineTableLength;
 volatile uint8_t ddsTableIndex=0;
 
@@ -95,8 +95,8 @@ void DDS_SET_FREQ_sCmd_action_handler(SerialCommand this_sCmd){
   }
   else{
     freq = atof(arg);
-    ddsLookupFeq = ddsTableLength*freq;
-    ddsTimer.update(1000000/ddsLookupFeq);   // function called by interrupt at micros interval 
+    ddsLookupFreq = ddsTableLength*freq;
+    ddsTimer.update(1000000/ddsLookupFreq);   // function called by interrupt at micros interval 
   }
 }
 
@@ -105,7 +105,7 @@ void DDS_START_sCmd_action_handler(SerialCommand this_sCmd){
     analogWriteFrequency(pwmPin, 10000);            // this is the PWM frequency should be >> DDS frequency
     analogWriteResolution(8);                       // analogWrite value 0 to 255
     ddsTimer.priority(0); //highest priority
-    ddsTimer.begin(ddsISR, 1000000/ddsLookupFeq);   // function called by interrupt at micros interval 
+    ddsTimer.begin(ddsISR, 1000000/ddsLookupFreq);   // function called by interrupt at micros interval 
 }
 
 void DDS_STOP_sCmd_action_handler(SerialCommand this_sCmd){
