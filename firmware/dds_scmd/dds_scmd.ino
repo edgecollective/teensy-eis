@@ -9,6 +9,7 @@
 #define DEBUG_PORT Serial
 
 // SerialCommand parser
+const unsigned int SERIAL_BAUDRATE = 115200;
 SerialCommand sCmd_USB(Serial, 10); // (Stream, int maxCommands)
 
 void setup() {
@@ -16,13 +17,14 @@ void setup() {
     // Setup SerialCommand for USB interface
     //--------------------------------------------------------------------------
     // intialize the serial device
-    Serial.begin(NeuroDot::SERIAL_BAUDRATE);  //USB serial on the Teensy 3/4
+    Serial.begin(SERIAL_BAUDRATE);  //USB serial on the Teensy 3/4
     //while (!Serial){};
     sCmd_USB.setDefaultHandler(UNRECOGNIZED_sCmd_default_handler);
     sCmd_USB.addCommand("IDN?",         IDN_sCmd_query_handler);
     sCmd_USB.addCommand("D",            DEBUG_sCmd_action_handler);// dumps data to debugging port
     sCmd_USB.addCommand("DDS.SET_FREQ", DDS_SET_FREQ_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.START",    DDS_START_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.STOP",     DDS_STOP_sCmd_action_handler);
     //--------------------------------------------------------------------------
    
 }
@@ -30,7 +32,7 @@ void setup() {
 /******************************************************************************/
 // DDS subsystem
 const int pwmPin = 13;
-const unsigned int SERIAL_BAUDRATE = 115200;
+
 
 //generated in python:
 //    from pylab import *
@@ -43,8 +45,6 @@ const int sineTableLength = 100;
 // Create an IntervalTimer objec, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
 IntervalTimer ddsTimer;
 float ddsLookupFeq  = 100.0;
-int ddsTableLength  = sineTableLength;
-
 int ddsTableLength = sineTableLength;
 volatile uint8_t ddsTableIndex=0;
 
@@ -62,10 +62,11 @@ void loop() {
     size_t num_bytes = sCmd_USB.readSerial();
     if (num_bytes > 0){
         // CRITICAL SECTION --------------------------------------------------------
-        unsigned char sreg_backup = SREG;   /* save interrupt enable/disable state */
+        //unsigned char sreg_backup = SREG;   /* save interrupt enable/disable state */
         cli();
         sCmd_USB.processCommand();
-        SREG = sreg_backup;                 /* restore interrupt state */
+        sei();
+        //SREG = sreg_backup;                 /* restore interrupt state */
         // END CRITICAL SECTION ----------------------------------------------------
     }else{
         delay(10);
@@ -95,6 +96,7 @@ void DDS_SET_FREQ_sCmd_action_handler(SerialCommand this_sCmd){
   else{
     freq = atof(arg);
     ddsLookupFeq = ddsTableLength*freq;
+    ddsTimer.update(1000000/ddsLookupFeq);   // function called by interrupt at micros interval 
   }
 }
 
@@ -102,6 +104,7 @@ void DDS_START_sCmd_action_handler(SerialCommand this_sCmd){
      // PWM setup, ref: https://www.pjrc.com/teensy/td_pulse.html
     analogWriteFrequency(pwmPin, 10000);            // this is the PWM frequency should be >> DDS frequency
     analogWriteResolution(8);                       // analogWrite value 0 to 255
+    ddsTimer.priority(0); //highest priority
     ddsTimer.begin(ddsISR, 1000000/ddsLookupFeq);   // function called by interrupt at micros interval 
 }
 
@@ -110,4 +113,15 @@ void DDS_STOP_sCmd_action_handler(SerialCommand this_sCmd){
     ddsTimer.end();
 }
 
+//------------------------------------------------------------------------------
+// Unrecognized command
+void UNRECOGNIZED_sCmd_default_handler(SerialCommand this_sCmd)
+{
+  SerialCommand::CommandInfo command = this_sCmd.getCurrentCommand();
+  this_sCmd.print(F("#ERROR: command '"));
+  this_sCmd.print(command.name);
+  this_sCmd.print(F("' not recognized ###\n"));
+}
+
+/******************************************************************************/
 
