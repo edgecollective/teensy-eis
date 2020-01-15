@@ -20,9 +20,9 @@ const int sineTableLength = 100;
 IntervalTimer ddsTimer;
 
 void setup() {
-    analogWriteFrequency(pwmPin, 10000); // Teensy 3.0 pin 3 also changes to 375 kHz
-    analogWriteResolution(8);        // analogWrite value 0 to 255
-    ddsTimer.begin(ddsISR, 1000000/ddsLookupFeq);
+    analogWriteFrequency(pwmPin, 10000);            // this is the PWM frequency should be >> DDS frequency
+    analogWriteResolution(8);                       // analogWrite value 0 to 255
+    ddsTimer.begin(ddsISR, 1000000/ddsLookupFeq);   // function called by interrupt at micros interval
 }
 
 //uint8_t ddsTable[] = sineTable;
@@ -30,6 +30,7 @@ int ddsTableLength = sineTableLength;
 volatile uint8_t ddsTableIndex=0;
 
 void ddsISR(){
+    //cycle through the lookup table, and change the anolog (PWM) value 
     ddsTableIndex = (ddsTableIndex + 1) % ddsTableLength;
     analogWrite(pwmPin, sineTable[ddsTableIndex]);
 }
