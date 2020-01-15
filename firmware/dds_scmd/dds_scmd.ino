@@ -42,7 +42,7 @@ const int pwmPin = 13;
 const uint8_t sineTable[] = {127,135,143,151,159,166,174,182,189,196,202,209,215,221,226,231,235,239,243,246,249,251,253,254,254,254,254,253,252,250,247,245,241,237,233,228,223,218,212,206,199,192,185,178,170,163,155,147,139,131,122,114,106,98,90,83,75,68,61,54,47,41,35,30,25,20,16,12,8,6,3,1,0,0,0,0,0,0,2,4,7,10,14,18,22,27,32,38,44,51,57,64,71,79,87,94,102,110,118,126};
 const int sineTableLength = 100;
 
-// Create an IntervalTimer objec, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
+// Create an IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
 IntervalTimer ddsTimer;
 float ddsLookupFreq  = 100.0;
 int ddsTableLength = sineTableLength;
@@ -104,12 +104,13 @@ void DDS_START_sCmd_action_handler(SerialCommand this_sCmd){
      // PWM setup, ref: https://www.pjrc.com/teensy/td_pulse.html
     analogWriteFrequency(pwmPin, 10000);            // this is the PWM frequency should be >> DDS frequency
     analogWriteResolution(8);                       // analogWrite value 0 to 255
+    // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
     ddsTimer.priority(0); //highest priority
     ddsTimer.begin(ddsISR, 1000000/ddsLookupFreq);   // function called by interrupt at micros interval 
 }
 
 void DDS_STOP_sCmd_action_handler(SerialCommand this_sCmd){
-     // PWM setup, ref: https://www.pjrc.com/teensy/td_pulse.html
+    // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
     ddsTimer.end();
 }
 
