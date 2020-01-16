@@ -20,11 +20,12 @@ void setup() {
     Serial.begin(SERIAL_BAUDRATE);  //USB serial on the Teensy 3/4
     //while (!Serial){};
     sCmd_USB.setDefaultHandler(UNRECOGNIZED_sCmd_default_handler);
-    sCmd_USB.addCommand("IDN?",         IDN_sCmd_query_handler);
-    sCmd_USB.addCommand("D",            DEBUG_sCmd_action_handler);// dumps data to debugging port
-    sCmd_USB.addCommand("DDS.SET_FREQ", DDS_SET_FREQ_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.START",    DDS_START_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.STOP",     DDS_STOP_sCmd_action_handler);
+    sCmd_USB.addCommand("IDN?",             IDN_sCmd_query_handler);
+    sCmd_USB.addCommand("D",                DEBUG_sCmd_action_handler);// dumps data to debugging port
+    sCmd_USB.addCommand("DDS.SET_FREQ",     DDS_SET_FREQ_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.SET_PWM_FREQ", DDS_SET_PWM_FREQ_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.START",        DDS_START_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.STOP",         DDS_STOP_sCmd_action_handler);
     //--------------------------------------------------------------------------
    
 }
@@ -95,8 +96,28 @@ void DDS_SET_FREQ_sCmd_action_handler(SerialCommand this_sCmd){
   }
   else{
     freq = atof(arg);
-    ddsLookupFreq = ddsTableLength*freq;
-    ddsTimer.update(1000000/ddsLookupFreq);   // function called by interrupt at micros interval 
+    if (freq > 0.0){
+        ddsLookupFreq = ddsTableLength*freq;
+        ddsTimer.update(1000000/ddsLookupFreq);// function called by interrupt at micros interval
+    } else{
+        this_sCmd.print(F("#ERROR: DDS.SET_FREQ argument 'freq' was 0.0 or undefined!\n"));
+    }
+  }
+}
+
+void DDS_SET_PWM_FREQ_sCmd_action_handler(SerialCommand this_sCmd){
+  long freq;
+  char *arg = this_sCmd.next();
+  if (arg == NULL){
+    this_sCmd.print(F("#ERROR: DDS.SET_PWM_FREQ requires 1 argument 'freq' (long)\n"));
+  }
+  else{
+    freq = atol(arg);
+    if (freq > 0){
+        analogWriteFrequency(pwmPin, freq); // this is the PWM frequency should be >> DDS frequency
+    } else{
+        this_sCmd.print(F("#ERROR: DDS.SET_PWM_FREQ argument 'freq' was 0 or undefined!\n"));
+    }
   }
 }
 
