@@ -65,14 +65,10 @@ void adc0_StartConversionTimerCallback(void){
 void adc0_isr(void) {
     //DEBUG_PORT.print(since_setup_started_micros);
     //DEBUG_PORT.println(" adc0_isr");
-    if(adc0_num_iter < adc0_num_continuous_samples - 1) {
-        adc0_buffer[adc0_num_iter] = (uint16_t) adc->adc0->analogReadContinuous();
-        adc0_num_iter++;
-    } else {
-        //last sample
-        adc0_buffer[adc0_num_iter] = (uint16_t) adc->adc0->analogReadContinuous();
-        adc0_num_iter++;
-        //shut it down
+    adc0_buffer[adc0_num_iter] = (uint16_t) adc->adc0->analogReadContinuous();
+    adc0_num_iter++;
+    if  (adc0_num_iter == adc0_num_continuous_samples){
+        //last sample, shut it down
         adc->stopContinuous(ADC_0);
         adc0_is_busy = false;
     }
