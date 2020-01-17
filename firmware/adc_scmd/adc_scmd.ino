@@ -33,11 +33,12 @@ void setup() {
     sCmd_USB.addCommand("D",             DEBUG_sCmd_action_handler);// dumps data to debugging port
     sCmd_USB.addCommand("ADC.SET_SAMP_SPEED", ADC_SET_SAMP_SPEED_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_CONV_SPEED", ADC_SET_CONV_SPEED_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.SET_RES",        ADC_SET_RES_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_SIZE",       ADC_SET_SIZE_sCmd_action_handler);
-    sCmd_USB.addCommand("ADC.SET_NUM",   ADC_SET_NUM_sCmd_action_handler);
-    sCmd_USB.addCommand("ADC.SET_RATE",  ADC_SET_RATE_sCmd_action_handler);
-    sCmd_USB.addCommand("ADC.START",     ADC_START_sCmd_action_handler);
-    sCmd_USB.addCommand("ADC.STOP",      ADC_STOP_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.SET_NUM",        ADC_SET_NUM_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.SET_RATE",       ADC_SET_RATE_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.START",          ADC_START_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.STOP",           ADC_STOP_sCmd_action_handler);
     //--------------------------------------------------------------------------
     pinMode(LED_BUILTIN, OUTPUT);
 }
@@ -89,10 +90,10 @@ void adc0_sampleISR(void) {
     adc0_buffer->write((uint16_t) adc->adc0->analogReadContinuous());
     adc0_samp_iter++;
     if  (adc0_samp_iter == adc0_sample_group_size){
-        //last sample, shut it down
-        adc->stopContinuous(ADC_0);
         //record micros timestamp
         adc0_group_end_timestamp_micros = since_setup_started_micros;
+        //last sample, shut it down
+        adc->stopContinuous(ADC_0);
         adc0_group_iter++;
         adc0_is_busy = false;
     }
@@ -154,7 +155,7 @@ void loop() {
     }
     //rest a bit if doing nothing
     if (is_idle){
-        delay(10);
+        delay(100);
     }
     
 }
@@ -201,7 +202,7 @@ void ADC_SET_SAMP_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
 
 void ADC_SET_CONV_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
     // ADC_CONVERSION_SPEED enum: VERY_LOW_SPEED, LOW_SPEED, MED_SPEED,
-    // HIGH_SPEED_16BITS, HIGH_SPEED, VERY_HIGH_SPEED, ADACK_2_4, ADACK_4_0, ADACK_5_2 or ADACK_6_2
+    // HIGH_SPEED_16BITS, HIGH_SPEED, VERY_HIGH_SPEED
     int level;
     char *arg = this_sCmd.next();
     if (arg == NULL){
@@ -217,6 +218,27 @@ void ADC_SET_CONV_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
             case 4: adc->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED,   ADC_0); break;
             default:{
                 this_sCmd.print(F("#ERROR: ADC.SET_CONV_SPEED requires 1 argument 'level'= {0,1,2,3,4}\n"));
+                break;
+            }
+        }
+    }
+}
+
+void ADC_SET_RES_sCmd_action_handler(SerialCommand this_sCmd){
+    int bits;
+    char *arg = this_sCmd.next();
+    if (arg == NULL){
+        this_sCmd.print(F("#ERROR: ADC.SET_RES requires 1 argument 'bits'= {8,10,12,16}\n"));
+    }
+    else{
+        bits = atoi(arg);
+        switch(bits){
+            case 8:
+            case 10:
+            case 12:
+            case 16: adc->setResolution(bits, ADC_0);break;
+            default:{
+                this_sCmd.print(F("#ERROR: ADC.SET_RES requires 1 argument 'bits'= {8,10,12,16}\n"));
                 break;
             }
         }
@@ -292,10 +314,13 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
         this_sCmd.println(p);
         return;
     }
+    adc->setAveraging(1, ADC_0);
     adc->enableInterrupts(adc0_sampleISR, ADC_0);
     // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
     adc0_timer.priority(1); //second highest priority
     adc0_timer.begin(adc0_sampleGroupTimerCallback, 1000000/adc0_group_rate);   // function called by interrupt at micros interval 
+    
+    //while (adc0_samp_iter < adc0_sample_group_size){};//FIXME test blocking
 }
 
 void ADC_STOP_sCmd_action_handler(SerialCommand this_sCmd){
