@@ -119,15 +119,14 @@ void loop() {
         // CRITICAL SECTION --------------------------------------------------------
         //unsigned char sreg_backup = SREG;   /* save interrupt enable/disable state */
         cli();
-        // adc0_samp_iter is volatile, so don't use it outside critical section!
+        // a lot of these variables are volatile, so don't use them outside critical section!
         int adc0_new_samples = adc0_samp_iter - adc0_samp_iter_last;
         int group_index = adc0_group_iter - 1; //we are considering result of last iteration
         unsigned long group_start_timestamp_micros = adc0_group_start_timestamp_micros;
-        unsigned long group_end_timestamp_micros   = adc0_group_end_timestamp_micros;
+        unsigned long group_duration_micros = adc0_group_end_timestamp_micros - group_start_timestamp_micros;
         sei();
         //SREG = sreg_backup;                 /* restore interrupt state */
         // END CRITICAL SECTION ----------------------------------------------------
-        
         if (adc0_new_samples > 0){
             //DEBUG_PORT.print(F("# \tadc0_new_samples = "));
             //DEBUG_PORT.println(adc0_new_samples);
@@ -144,7 +143,7 @@ void loop() {
                 } else{
                     //finish up packet
                     Serial.print(":");
-                    Serial.print(group_end_timestamp_micros);
+                    Serial.print(group_duration_micros);
                     Serial.print("\n");
                 }
                 
