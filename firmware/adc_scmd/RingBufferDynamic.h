@@ -57,6 +57,9 @@ class RingBufferDynamicUINT16
 
         //! Read a value from the buffer
         uint16_t read();
+        
+        // Clear out the whole buffer
+        void clear(){b_start=0;b_end=0;}
 
     protected:
     private:

@@ -10,7 +10,7 @@
 #include <SerialCommand.h>  /* https://github.com/p-v-o-s/Arduino-SerialCommand */
 
 //local
-#include "RingBufferDynamic.h"
+//#include "RingBufferDynamic.h"
 ////////////////////////////////////////////////////////////////////////////////
 #define IDN_STRING "EdgeCollective ADC Device"
 #define DEBUG_PORT Serial
@@ -53,13 +53,12 @@ unsigned long   adc0_num_sample_groups = 1;
 float  adc0_group_rate = 1.0;
 float  adc0_readPin = A2;
 
-RingBufferDynamicUINT16 *adc0_buffer = nullptr;
+uint16_t *adc0_buffer = nullptr;
 
 IntervalTimer adc0_timer;
 
 volatile int  adc0_group_iter     = 0;
 volatile int  adc0_samp_iter      = 0;
-volatile int  adc0_samp_iter_last = 0;
 volatile bool adc0_group_is_ready = false;
 volatile bool adc0_is_busy = false;
 volatile unsigned long adc0_group_start_timestamp_micros = 0;
@@ -68,15 +67,20 @@ volatile unsigned long adc0_group_end_timestamp_micros   = 0;
 void adc0_sampleGroupTimerCallback(void){
     //DEBUG_PORT.print(since_setup_started_micros);
     //DEBUG_PORT.println(" adc0_sampleGroupTimerCallback");
-    digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
-    if (adc0_group_iter < adc0_num_sample_groups){
+    if (adc0_group_iter < adc0_num_sample_groups || adc0_num_sample_groups == -1){
         if (!adc0_is_busy){
-            adc0_samp_iter      = 0;
-            adc0_samp_iter_last = 0;
+            adc0_samp_iter = 0;
             adc0_is_busy = true;
+            digitalWriteFast(LED_BUILTIN,HIGH);
             //record micros timestamp
             adc0_group_start_timestamp_micros = since_setup_started_micros;
             adc->startContinuous(adc0_readPin, ADC_0);
+            Serial.print(adc0_group_iter);
+            Serial.print(":");
+            Serial.print(adc0_group_start_timestamp_micros);
+            Serial.print(":");
+        }else{
+            DEBUG_PORT.print(F("# WARNING: skipping scheduled sample group!\n"));
         }
     }else{
         //shut down group iteration
@@ -87,15 +91,31 @@ void adc0_sampleGroupTimerCallback(void){
 void adc0_sampleISR(void) {
     //DEBUG_PORT.print(since_setup_started_micros);
     //DEBUG_PORT.println(" adc0_sampleISR");
-    adc0_buffer->write((uint16_t) adc->adc0->analogReadContinuous());
+    adc0_buffer[adc0_samp_iter] = adc->adc0->analogReadContinuous();
     adc0_samp_iter++;
-    if  (adc0_samp_iter == adc0_sample_group_size){
+    if  (adc0_samp_iter >= adc0_sample_group_size){
         //record micros timestamp
         adc0_group_end_timestamp_micros = since_setup_started_micros;
         //last sample, shut it down
         adc->stopContinuous(ADC_0);
         adc0_group_iter++;
+        if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
+            //shut down group iteration FIXME possibly prevents race condition?
+            adc0_timer.end();
+        }
+        //now readout the samples in the buffer
+        int i=0;
+        for(; i < adc0_sample_group_size - 1; i++){
+            Serial.print(adc0_buffer[i]);
+            Serial.print(",");
+        }
+        Serial.print(adc0_buffer[i]);
+        //finish up packet
+        Serial.print(":");
+        Serial.print(adc0_group_end_timestamp_micros-adc0_group_start_timestamp_micros);
+        Serial.print("\n");
         adc0_is_busy = false;
+        digitalWriteFast(LED_BUILTIN,LOW);
     }
 }
 
@@ -115,49 +135,8 @@ void loop() {
         //SREG = sreg_backup;                 /* restore interrupt state */
         // END CRITICAL SECTION ----------------------------------------------------
     }
-    //check to see if there is new ADC data in the buffer
-    if (!adc0_is_busy){
-        // CRITICAL SECTION --------------------------------------------------------
-        //unsigned char sreg_backup = SREG;   /* save interrupt enable/disable state */
-        cli();
-        // a lot of these variables are volatile, so don't use them outside critical section!
-        int adc0_new_samples = adc0_samp_iter - adc0_samp_iter_last;
-        int group_index = adc0_group_iter - 1; //we are considering result of last iteration
-        unsigned long group_start_timestamp_micros = adc0_group_start_timestamp_micros;
-        unsigned long group_duration_micros = adc0_group_end_timestamp_micros - group_start_timestamp_micros;
-        sei();
-        //SREG = sreg_backup;                 /* restore interrupt state */
-        // END CRITICAL SECTION ----------------------------------------------------
-        if (adc0_new_samples > 0){
-            //DEBUG_PORT.print(F("# \tadc0_new_samples = "));
-            //DEBUG_PORT.println(adc0_new_samples);
-            is_idle = false;
-            Serial.print(group_index);
-            Serial.print(":");
-            Serial.print(group_start_timestamp_micros);
-            Serial.print(":");
-            for(int i=0; i < adc0_new_samples; i++){
-                int buff_index = adc0_samp_iter_last + i;
-                Serial.print(adc0_buffer->read());
-                if (buff_index < adc0_sample_group_size - 1){
-                    Serial.print(",");
-                } else{
-                    //finish up packet
-                    Serial.print(":");
-                    Serial.print(group_duration_micros);
-                    Serial.print("\n");
-                }
-                
-            }
-             // save state of the past loop
-            adc0_samp_iter_last += adc0_new_samples;
-        }
-    }
     //rest a bit if doing nothing
-    if (is_idle){
-        delay(100);
-    }
-    
+    if (is_idle){delay(10);}
 }
 
 
@@ -171,10 +150,12 @@ void IDN_sCmd_query_handler(SerialCommand this_sCmd){
 void DEBUG_sCmd_action_handler(SerialCommand this_sCmd){
     DEBUG_PORT.print(F("# MainLoop params:\n"));
     DEBUG_PORT.print(F("# ADC params:\n"));
+    DEBUG_PORT.print(F("# \tadc0_group_iter = "));
+    DEBUG_PORT.println(adc0_group_iter);
     DEBUG_PORT.print(F("# \tadc0_samp_iter = "));
     DEBUG_PORT.println(adc0_samp_iter);
-    DEBUG_PORT.print(F("# \tadc0_samp_iter_last = "));
-    DEBUG_PORT.println(adc0_samp_iter_last);
+    DEBUG_PORT.print(F("# \tadc0_is_busy = "));
+    DEBUG_PORT.println(adc0_is_busy);
 }
 
 void ADC_SET_SAMP_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
@@ -249,12 +230,27 @@ void ADC_SET_SIZE_sCmd_action_handler(SerialCommand this_sCmd){
   long size;
   char *arg = this_sCmd.next();
   if (arg == NULL){
-    this_sCmd.print(F("#ERROR: ADC.SET_SIZE requires 1 argument (long size)\n"));
+      this_sCmd.print(F("#ERROR: ADC.SET_SIZE requires 1 argument (long size)\n"));
   }
   else{
     size = atol(arg);
     if (size > 0){
-        adc0_sample_group_size = size;
+        //allocate memory for new buffer
+        if (adc0_buffer == nullptr){ //fist time
+            //DEBUG_PORT.println("malloc");
+            adc0_buffer = (uint16_t *) malloc(sizeof(uint16_t)*adc0_sample_group_size);
+        } else{ //reallocation
+            //DEBUG_PORT.println("realloc");
+            adc0_buffer = (uint16_t *) realloc(adc0_buffer,sizeof(uint16_t)*adc0_sample_group_size);
+        }
+        if (adc0_buffer == nullptr){
+            this_sCmd.print(F("#ERROR: ADC_SET_SIZE cannot allocate memory for group size = "));
+            this_sCmd.print(adc0_sample_group_size);
+            this_sCmd.print(F(", decrease 'size' and try again! "));
+            adc0_sample_group_size = 0;
+        }else{
+            adc0_sample_group_size = size;
+        }
     } else{
         this_sCmd.print(F("#ERROR: ADC.SET_SIZE argument 'size' must be > 0!\n"));
     }
@@ -269,10 +265,10 @@ void ADC_SET_NUM_sCmd_action_handler(SerialCommand this_sCmd){
   }
   else{
     num = atol(arg);
-    if (num > 0){
+    if (num >= -1){
         adc0_num_sample_groups = num;
     } else{
-        this_sCmd.print(F("#ERROR: ADC.SET_NUM argument 'num' must be > 0!\n"));
+        this_sCmd.print(F("#ERROR: ADC.SET_NUM argument 'num' must be >= -1 (-1 == infinite)!\n"));
     }
   }
 }
@@ -297,22 +293,16 @@ void ADC_SET_RATE_sCmd_action_handler(SerialCommand this_sCmd){
 
 void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     adc0_group_iter = 0;
-    adc0_samp_iter = 0;
-    //allocate memory for new buffer
-    if (adc0_buffer != nullptr){
-        delete adc0_buffer;
-    }
-    //compute next power of 2 bounding n, ref: https://www.geeksforgeeks.org/smallest-power-of-2-greater-than-or-equal-to-n/
-    unsigned long n = adc0_sample_group_size;
-    unsigned int p = 1;
-    while (p < n)
-        p <<= 1;
-      
-    adc0_buffer = new RingBufferDynamicUINT16(p);
-    if (!adc0_buffer->isAlloc()){
-        this_sCmd.print(F("#ERROR: ADC.START cannot allocate memory for size p=2**"));
-        this_sCmd.println(p);
-        return;
+    adc0_samp_iter  = 0;
+    //allocate memory for new buffer, if it hasn't been already
+    if (adc0_buffer == nullptr){
+        //DEBUG_PORT.println("malloc");
+        adc0_buffer = (uint16_t*) malloc(sizeof(uint16_t)*adc0_sample_group_size);
+        if (adc0_buffer == nullptr){
+            this_sCmd.print(F("#ERROR: ADC.START cannot allocate memory for group size = "));
+            this_sCmd.print(adc0_sample_group_size);
+            this_sCmd.print(F(", decrease with ADC.SET_SIZE and try again!\n"));
+        }
     }
     adc->setAveraging(1, ADC_0);
     adc->enableInterrupts(adc0_sampleISR, ADC_0);
