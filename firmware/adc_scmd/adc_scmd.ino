@@ -125,7 +125,7 @@ void adc1_sampleGroupTimerCallback(void){
             digitalWriteFast(LED_BUILTIN,HIGH);
             //record micros timestamp
             adc1_group_start_timestamp_micros = since_setup_started_micros;
-            adc->startContinuous(adc0_readPin, ADC_0);
+            adc->startContinuous(adc1_readPin, ADC_1);
             Serial.print("C1:");
             Serial.print(adc1_group_iter);
             Serial.print(":");
@@ -571,8 +571,8 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             interrupt_priority++; //prefer this interrupt over channel 1
         }
         if (adc_chan1_is_configured){
-            adc0_timer.priority(interrupt_priority);
-            adc0_timer.begin(adc1_sampleGroupTimerCallback, 1000000/adc1_group_rate);   // function called by interrupt at micros interval 
+            adc1_timer.priority(interrupt_priority);
+            adc1_timer.begin(adc1_sampleGroupTimerCallback, 1000000/adc1_group_rate);   // function called by interrupt at micros interval 
             interrupt_priority++; //in case we add more callbacks
         }
     }
