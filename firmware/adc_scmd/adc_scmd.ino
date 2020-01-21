@@ -54,7 +54,7 @@ enum adc_config_mode_t {ADC_CONFIG_CHAN0,ADC_CONFIG_CHAN1,ADC_CONFIG_SYNC};
 adc_config_mode_t adc_config_mode = ADC_CONFIG_SYNC;
 bool adc_chan0_is_configured = false;
 bool adc_chan1_is_configured = false;
-int  adc_num_channels = 0;
+int  adc_num_timers_active = 0;
 int  adc0_readPin = A0;
 int  adc1_readPin = A2;
 
@@ -110,6 +110,7 @@ void adc0_sampleGroupTimerCallback(void){
     }else{
         //shut down group iteration
         adc0_timer.end();
+        adc_num_timers_active--; //decrement
     }
 }
 
@@ -131,6 +132,7 @@ void adc1_sampleGroupTimerCallback(void){
     }else{
         //shut down group iteration
         adc1_timer.end();
+        adc_num_timers_active--; //decrement
     }
 }
 
@@ -147,10 +149,6 @@ void adc0_sampleISR(void) {
         digitalWriteFast(LED_BUILTIN,LOW);
         adc0_group_is_ready = true; //signal to main loop for readout
         adc0_group_iter++;
-        if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
-            //shut down group iteration FIXME possibly prevents race condition?
-            adc0_timer.end();
-        }
     }
 }
 
@@ -167,10 +165,6 @@ void adc1_sampleISR(void) {
         digitalWriteFast(LED_BUILTIN,LOW);
         adc1_group_is_ready = true; //signal to main loop for readout
         adc1_group_iter++;
-        if (adc1_group_iter >= adc1_num_sample_groups && adc1_num_sample_groups != -1){
-            //shut down group iteration FIXME possibly prevents race condition?
-            adc1_timer.end();
-        }
     }
 }
 
@@ -193,16 +187,11 @@ void adc_synchronizedSampleISR(void) {
         digitalWriteFast(LED_BUILTIN,LOW);
         adc0_group_is_ready = true; //signal to main loop for readout
         adc0_group_iter++;
-        if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
-            //shut down group iteration FIXME possibly prevents race condition?
-            adc0_timer.end();
-        }
     }
 }
 
 /******************************************************************************/
 // Mainloop
-volatile bool mainloop_is_streaming_adc = false;
 volatile bool mainloop_is_idle = true;
 
 void loop() {
@@ -220,7 +209,7 @@ void loop() {
         // END CRITICAL SECTION ----------------------------------------------------
     }
     // if we are currently streaming ADC data
-    if (mainloop_is_streaming_adc){
+    if (adc_num_timers_active > 0){
         mainloop_is_idle = false; //make sure our response is quick!
         if (adc0_group_is_ready){
             //print out the header
@@ -304,15 +293,15 @@ void IDN_sCmd_query_handler(SerialCommand this_sCmd){
 
 void DEBUG_sCmd_action_handler(SerialCommand this_sCmd){
     DEBUG_PORT.print(F("# MainLoop params:\n"));
-    DEBUG_PORT.print(F("# \tmainloop_is_streaming_adc = "));
-    DEBUG_PORT.println(mainloop_is_streaming_adc);
+    DEBUG_PORT.print(F("# \tmainloop_is_idle = "));
+    DEBUG_PORT.println(mainloop_is_idle);
     DEBUG_PORT.print(F("# ADC params:\n"));
     DEBUG_PORT.print(F("# \tadc_config_mode = "));
     DEBUG_PORT.println(adc_config_mode);
     DEBUG_PORT.print(F("# \tadc_chan0_is_configured = "));
     DEBUG_PORT.println(adc_chan0_is_configured);
-    DEBUG_PORT.print(F("# \tadc_num_channels = "));
-    DEBUG_PORT.println(adc_num_channels);
+    DEBUG_PORT.print(F("# \tadc_num_timers_active = "));
+    DEBUG_PORT.println(adc_num_timers_active);
     DEBUG_PORT.print(F("# \tadc0_buffer_size = "));
     DEBUG_PORT.println(adc0_buffer_size);
     DEBUG_PORT.print(F("# \tadc1_buffer_size = "));
@@ -578,7 +567,7 @@ void ADC_SET_RATE_sCmd_action_handler(SerialCommand this_sCmd){
 }
 
 void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
-    adc_num_channels = 0;//this will be determined depending on config below
+    adc_num_timers_active = 0;//this will be determined depending on config below
     adc0_group_iter = 0;
     adc1_group_iter = 0;
     adc0_samp_iter  = 0;
@@ -589,7 +578,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     if (adc_config_mode == ADC_CONFIG_SYNC){
         success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels into this buffer
         if(success){
-            adc_num_channels = 2;
+            adc_num_timers_active = 2;
             adc->enableInterrupts(adc_synchronizedSampleISR, interrupt_priority, ADC_0); //isr, priority=255, adc_num=-1
             interrupt_priority++; //prefer this interrupt over the group timer
             // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
@@ -601,7 +590,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
         if (adc_chan0_is_configured){
             success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels in this buffer
             if(success){
-                adc_num_channels++; //include this channel
+                adc_num_timers_active++; //include this channel
                 adc->setAveraging(1, ADC_0);
                 adc->enableInterrupts(adc0_sampleISR, interrupt_priority, ADC_0);
                 interrupt_priority++; //prefer this interrupt if chan 1 is also configured
@@ -610,7 +599,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
         if (adc_chan1_is_configured){
             success &= _allocate_adc1_buffer(adc1_buffer_size,false); //we interleave both channels in this buffer
             if(success){
-                adc_num_channels++; //include this channel
+                adc_num_timers_active++; //include this channel
                 adc->setAveraging(1, ADC_1);
                 adc->enableInterrupts(adc1_sampleISR, interrupt_priority, ADC_1);
                 interrupt_priority++; //prefer this interrupt over the group timer
@@ -627,12 +616,8 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             adc1_timer.begin(adc1_sampleGroupTimerCallback, 1000000/adc1_group_rate);   // function called by interrupt at micros interval 
             interrupt_priority++; //in case we add more callbacks
         }
-        
     }
-    //configure the mainloop for streaming
-    if (success){
-        mainloop_is_streaming_adc = true;
-    }
+    //anything else to do?
 }
 
 void ADC_STOP_sCmd_action_handler(SerialCommand this_sCmd){
