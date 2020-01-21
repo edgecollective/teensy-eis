@@ -32,6 +32,7 @@ void setup() {
     sCmd_USB.addCommand("IDN?",          IDN_sCmd_query_handler);
     sCmd_USB.addCommand("D",             DEBUG_sCmd_action_handler);// dumps data to debugging port
     sCmd_USB.addCommand("ADC.CONFIG",         ADC_CONFIG_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.SET_READ_PIN",   ADC_SET_READ_PIN_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_SAMP_SPEED", ADC_SET_SAMP_SPEED_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_CONV_SPEED", ADC_SET_CONV_SPEED_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_RES",        ADC_SET_RES_sCmd_action_handler);
@@ -362,6 +363,59 @@ void ADC_CONFIG_sCmd_action_handler(SerialCommand this_sCmd){
     }
 }
 
+void ADC_SET_READ_PIN_sCmd_action_handler(SerialCommand this_sCmd){
+    char *arg = this_sCmd.next();
+    if (arg == NULL){
+        this_sCmd.print(F("#ERROR: ADC.SET_READ_PIN requires 1 argument 'Apin'= {0,1,2,3,4,5,6,7,8,9,10,11,12,13}\n"));
+    }
+    else{
+        int Apin = atoi(arg);
+        int pin;
+        switch(Apin){
+            case 0: pin = A0; break;
+            case 1: pin = A1; break;
+            case 2: pin = A2; break;
+            case 3: pin = A3; break;
+            case 4: pin = A4; break;
+            case 5: pin = A5; break;
+            case 6: pin = A6; break;
+            case 7: pin = A7; break;
+            case 8: pin = A8; break;
+            case 9: pin = A9; break;
+            case 10: pin = A10; break;
+            case 11: pin = A11; break;
+            case 12: pin = A12; break;
+            case 13: pin = A13; break;
+            default:{
+                this_sCmd.print(F("#ERROR: ADC.SET_READ_PIN requires 1 argument 'Apin'= {0,1,2,3,4,5,6,7,8,9,10,11,12,13}\n"));
+                return;
+            }
+        }
+        //set the param depending on the config mode
+        if (adc_config_mode == ADC_CONFIG_CHAN0){
+            adc0_readPin = pin;
+            return;
+        } else if (adc_config_mode == ADC_CONFIG_CHAN1){
+            adc1_readPin = pin;
+            return;
+        } else if (adc_config_mode == ADC_CONFIG_SYNC){
+            //must specify the channel next
+            arg = this_sCmd.next();
+            if (arg != NULL){
+                int chan = atoi(arg);
+                if(chan == 0){
+                    adc0_readPin = pin;
+                    return;
+                } else if (chan == 1){
+                    adc1_readPin = pin;
+                    return;
+                }
+            }
+            //failed
+            this_sCmd.print(F("#ERROR: ADC.SET_READ_PIN requires 2nd argument 'chan'= {0,1} when ADC_CONFIG_SYNC mode is set.\n"));
+        }
+    }
+}
 
 void ADC_SET_SAMP_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
     //ADC_SAMPLING_SPEED enum: VERY_LOW_SPEED, LOW_SPEED, MED_SPEED, HIGH_SPEED or VERY_HIGH_SPEED
