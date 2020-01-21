@@ -55,7 +55,8 @@ adc_config_mode_t adc_config_mode = ADC_CONFIG_SYNC;
 bool adc_chan0_is_configured = false;
 bool adc_chan1_is_configured = false;
 int  adc_num_channels = 0;
-int  adc_chan1_buffer_leaf = 0; //will be incremented to 1 if chan0 is configured
+int  adc0_readPin = A0;
+int  adc1_readPin = A2;
 
 unsigned long   adc0_buffer_size = 10;
 unsigned long   adc1_buffer_size = 10;
@@ -63,8 +64,6 @@ unsigned long   adc0_num_sample_groups = 1;
 unsigned long   adc1_num_sample_groups = 1;
 float  adc0_group_rate = 1.0;
 float  adc1_group_rate = 1.0;
-float  adc0_readPin = A0;
-float  adc1_readPin = A2;
 
 uint16_t *adc0_buffer = nullptr;
 uint16_t *adc1_buffer = nullptr;
@@ -79,8 +78,12 @@ volatile int  adc0_samp_iter    = 0;
 volatile int  adc1_samp_iter    = 0;
 volatile bool adc0_is_busy = false;
 volatile bool adc1_is_busy = false;
+volatile bool adc0_group_is_ready = false;
+volatile bool adc1_group_is_ready = false;
 volatile unsigned long  adc0_group_start_timestamp_micros;
 volatile unsigned long  adc1_group_start_timestamp_micros;
+volatile unsigned long  adc0_group_end_timestamp_micros;
+volatile unsigned long  adc1_group_end_timestamp_micros;
 
 void adc0_sampleGroupTimerCallback(void){
     //DEBUG_PORT.print(since_setup_started_micros);
@@ -89,6 +92,7 @@ void adc0_sampleGroupTimerCallback(void){
         if (!adc0_is_busy){
             adc0_samp_iter = 0;
             adc0_is_busy = true;
+            adc0_group_is_ready = false;
             digitalWriteFast(LED_BUILTIN,HIGH);
             //record micros timestamp
             adc0_group_start_timestamp_micros = since_setup_started_micros;
@@ -97,15 +101,9 @@ void adc0_sampleGroupTimerCallback(void){
                 adc1_samp_iter = 0;
                 adc1_is_busy = true;
                 adc->startSynchronizedContinuous(adc0_readPin, adc1_readPin);
-                Serial.print("C01:");
             } else{
                 adc->startContinuous(adc0_readPin, ADC_0);
-                Serial.print("C0:");
             }
-            Serial.print(adc0_group_iter);
-            Serial.print(":");
-            Serial.print(adc0_group_start_timestamp_micros);
-            Serial.print(":");
         }else{
             DEBUG_PORT.print(F("# WARNING: ADC_CHAN0 skipping scheduled sample group!\n"));
         }
@@ -122,15 +120,11 @@ void adc1_sampleGroupTimerCallback(void){
         if (!adc1_is_busy){
             adc1_samp_iter = 0;
             adc1_is_busy = true;
+            adc1_group_is_ready = false;
             digitalWriteFast(LED_BUILTIN,HIGH);
             //record micros timestamp
             adc1_group_start_timestamp_micros = since_setup_started_micros;
             adc->startContinuous(adc1_readPin, ADC_1);
-            Serial.print("C1:");
-            Serial.print(adc1_group_iter);
-            Serial.print(":");
-            Serial.print(adc1_group_start_timestamp_micros);
-            Serial.print(":");
         }else{
             DEBUG_PORT.print(F("# WARNING: ADC_CHAN1 skipping scheduled sample group!\n"));
         }
@@ -147,8 +141,16 @@ void adc0_sampleISR(void) {
     adc0_buffer[adc0_samp_iter] = adc->adc0->analogReadContinuous();
     adc0_samp_iter++;
     if  (adc0_samp_iter >= adc0_buffer_size){
+        //last sample, shut it down
+        adc0_group_end_timestamp_micros = since_setup_started_micros;
         adc->stopContinuous(ADC_0);
-        adc0_finishSampleGroup();
+        digitalWriteFast(LED_BUILTIN,LOW);
+        adc0_group_is_ready = true; //signal to main loop for readout
+        adc0_group_iter++;
+        if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
+            //shut down group iteration FIXME possibly prevents race condition?
+            adc0_timer.end();
+        }
     }
 }
 
@@ -159,8 +161,16 @@ void adc1_sampleISR(void) {
     adc1_buffer[adc1_samp_iter] = adc->adc1->analogReadContinuous();
     adc1_samp_iter++;
     if  (adc1_samp_iter >= adc1_buffer_size){
+        //last sample, shut it down
+        adc1_group_end_timestamp_micros = since_setup_started_micros;
         adc->stopContinuous(ADC_1);
-        adc1_finishSampleGroup();
+        digitalWriteFast(LED_BUILTIN,LOW);
+        adc1_group_is_ready = true; //signal to main loop for readout
+        adc1_group_iter++;
+        if (adc1_group_iter >= adc1_num_sample_groups && adc1_num_sample_groups != -1){
+            //shut down group iteration FIXME possibly prevents race condition?
+            adc1_timer.end();
+        }
     }
 }
 
@@ -177,85 +187,30 @@ void adc_synchronizedSampleISR(void) {
     adc0_samp_iter++;
     adc1_samp_iter++;
     if  (adc0_samp_iter >= adc0_buffer_size/2){
+         //last sample, shut it down
+        adc0_group_end_timestamp_micros = since_setup_started_micros;
         adc->stopSynchronizedContinuous();
-        adc0_finishSampleGroup();
-    }
-}
-
-
-void adc0_finishSampleGroup(void){
-    //DEBUG_PORT.print(since_setup_started_micros);
-    //DEBUG_PORT.println(" adc0_finishSampleGroup");
-    //record micros timestamp
-    unsigned long group_end_timestamp_micros = since_setup_started_micros;
-    //last sample, shut it down
-    adc0_group_iter++;
-    if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
-        //shut down group iteration FIXME possibly prevents race condition?
-        adc0_timer.end();
-    }
-    //now readout the samples in the buffer
-    int i=0;
-    for(; i < adc0_buffer_size/adc_num_channels - 1; i++){
-        Serial.print(adc0_buffer[i*adc_num_channels]);
-        Serial.print(",");
-    }
-    Serial.print(adc0_buffer[i]);
-    adc0_is_busy = false;
-    if (adc_config_mode == ADC_CONFIG_SYNC){
-        // if there are two channels un sync mode the second's samples will 
-        // be interleaved at the odd indices
-        Serial.print(":");
-        int i=0;
-        for(; i < adc0_buffer_size/adc_num_channels - 1; i++){
-            Serial.print(adc0_buffer[i*adc_num_channels + 1]);
-            Serial.print(",");
+        digitalWriteFast(LED_BUILTIN,LOW);
+        adc0_group_is_ready = true; //signal to main loop for readout
+        adc0_group_iter++;
+        if (adc0_group_iter >= adc0_num_sample_groups && adc0_num_sample_groups != -1){
+            //shut down group iteration FIXME possibly prevents race condition?
+            adc0_timer.end();
         }
-        Serial.print(adc0_buffer[i+1]);
-        adc1_is_busy = false;
     }
-    digitalWriteFast(LED_BUILTIN,LOW);
-    //finish up packet
-    Serial.print(":");
-    Serial.print(group_end_timestamp_micros-adc0_group_start_timestamp_micros);
-    Serial.print("\n");
 }
-
-void adc1_finishSampleGroup(void){
-    //DEBUG_PORT.print(since_setup_started_micros);
-    //DEBUG_PORT.println(" adc1_finishSampleGroup");
-    //record micros timestamp
-    unsigned long group_end_timestamp_micros = since_setup_started_micros;
-    //last sample, shut it down
-    adc1_group_iter++;
-    if (adc1_group_iter >= adc1_num_sample_groups && adc1_num_sample_groups != -1){
-        //shut down group iteration FIXME possibly prevents race condition?
-        adc1_timer.end();
-    }
-    //now readout the samples in the buffer
-    int i=0;
-    for(; i < adc1_buffer_size - 1; i++){
-        Serial.print(adc1_buffer[i]);
-        Serial.print(",");
-    }
-    Serial.print(adc1_buffer[i]);
-    adc1_is_busy = false;
-    digitalWriteFast(LED_BUILTIN,LOW);
-    //finish up packet
-    Serial.print(":");
-    Serial.print(group_end_timestamp_micros-adc1_group_start_timestamp_micros);
-    Serial.print("\n");
-}
-
 
 /******************************************************************************/
 // Mainloop
+volatile bool mainloop_is_streaming_adc = false;
+volatile bool mainloop_is_idle = true;
+
 void loop() {
-    bool is_idle = true;
+    mainloop_is_idle = true; //assume we will be idle until we do something
     //process Serial commands over USB
     size_t num_bytes = sCmd_USB.readSerial();
     if (num_bytes > 0){
-        is_idle = false;
+        mainloop_is_idle = false;
         // CRITICAL SECTION --------------------------------------------------------
         //unsigned char sreg_backup = SREG;   /* save interrupt enable/disable state */
         cli();
@@ -264,8 +219,79 @@ void loop() {
         //SREG = sreg_backup;                 /* restore interrupt state */
         // END CRITICAL SECTION ----------------------------------------------------
     }
+    // if we are currently streaming ADC data
+    if (mainloop_is_streaming_adc){
+        mainloop_is_idle = false; //make sure our response is quick!
+        if (adc0_group_is_ready){
+            //print out the header
+            if (adc_config_mode == ADC_CONFIG_SYNC){
+                //handle special case of synchronized sampling
+                Serial.print("C01:");
+            } else{
+                Serial.print("C0:");
+            }
+            Serial.print(adc0_group_iter-1);
+            Serial.print(":");
+            Serial.print(adc0_group_start_timestamp_micros);
+            Serial.print(":");
+            //now readout the samples in the buffer
+            if (adc_config_mode == ADC_CONFIG_SYNC){
+                 // if there are two channels in sync mode the  will 
+                //  be interleaved
+                // ch0 at even indices
+                int i;
+                for(i=0; i < adc0_buffer_size/2 - 1; i++){
+                    Serial.print(adc0_buffer[2*i]);
+                    Serial.print(",");
+                }
+                Serial.print(adc0_buffer[i]);
+                Serial.print(":");
+                // ch1 at odd indices
+                for(i=0; i < adc0_buffer_size/2 - 1; i++){
+                    Serial.print(adc0_buffer[2*i + 1]);
+                    Serial.print(",");
+                }
+                Serial.print(adc0_buffer[i+1]);
+                adc1_is_busy = false;
+            }else{
+                int i;
+                for(i=0; i < adc0_buffer_size - 1; i++){
+                    Serial.print(adc0_buffer[i]);
+                    Serial.print(",");
+                }
+                Serial.print(adc0_buffer[i]);
+            }
+            //finish up packet
+            Serial.print(":");
+            Serial.print(adc0_group_end_timestamp_micros-adc0_group_start_timestamp_micros);
+            Serial.print("\n");
+            adc0_is_busy = false;        //we can start a new group now
+            adc0_group_is_ready = false; //make sure we don't print out same group
+        }
+        if (adc1_group_is_ready){
+            //print out the header
+            Serial.print("C1:");
+            Serial.print(adc1_group_iter-1);
+            Serial.print(":");
+            Serial.print(adc1_group_start_timestamp_micros);
+            Serial.print(":");
+            //now readout the samples in the buffer
+            int i=0;
+            for(; i < adc1_buffer_size - 1; i++){
+                Serial.print(adc1_buffer[i]);
+                Serial.print(",");
+            }
+            Serial.print(adc1_buffer[i]);
+            //finish up packet
+            Serial.print(":");
+            Serial.print(adc1_group_end_timestamp_micros-adc1_group_start_timestamp_micros);
+            Serial.print("\n");
+            adc1_is_busy = false;        //we can start a new group now
+            adc1_group_is_ready = false; //make sure we don't print out same group
+        }
+    }
     //rest a bit if doing nothing
-    if (is_idle){delay(10);}
+    if (mainloop_is_idle){delay(10);}
 }
 
 
@@ -278,9 +304,31 @@ void IDN_sCmd_query_handler(SerialCommand this_sCmd){
 
 void DEBUG_sCmd_action_handler(SerialCommand this_sCmd){
     DEBUG_PORT.print(F("# MainLoop params:\n"));
+    DEBUG_PORT.print(F("# \tmainloop_is_streaming_adc = "));
+    DEBUG_PORT.println(mainloop_is_streaming_adc);
     DEBUG_PORT.print(F("# ADC params:\n"));
     DEBUG_PORT.print(F("# \tadc_config_mode = "));
     DEBUG_PORT.println(adc_config_mode);
+    DEBUG_PORT.print(F("# \tadc_chan0_is_configured = "));
+    DEBUG_PORT.println(adc_chan0_is_configured);
+    DEBUG_PORT.print(F("# \tadc_num_channels = "));
+    DEBUG_PORT.println(adc_num_channels);
+    DEBUG_PORT.print(F("# \tadc0_buffer_size = "));
+    DEBUG_PORT.println(adc0_buffer_size);
+    DEBUG_PORT.print(F("# \tadc1_buffer_size = "));
+    DEBUG_PORT.println(adc1_buffer_size);
+    DEBUG_PORT.print(F("# \tadc0_num_sample_groups = "));
+    DEBUG_PORT.println(adc0_num_sample_groups);
+    DEBUG_PORT.print(F("# \tadc1_num_sample_groups = "));
+    DEBUG_PORT.println(adc1_num_sample_groups);
+    DEBUG_PORT.print(F("# \tadc0_group_rate  = "));
+    DEBUG_PORT.println(adc0_group_rate );
+    DEBUG_PORT.print(F("# \tadc1_group_rate  = "));
+    DEBUG_PORT.println(adc1_group_rate );
+    DEBUG_PORT.print(F("# \tadc0_readPin = "));
+    DEBUG_PORT.println(adc0_readPin);
+    DEBUG_PORT.print(F("# \tadc1_readPin = "));
+    DEBUG_PORT.println(adc1_readPin);
     DEBUG_PORT.print(F("# \tadc0_group_iter = "));
     DEBUG_PORT.println(adc0_group_iter);
     DEBUG_PORT.print(F("# \tadc1_group_iter = "));
@@ -293,6 +341,10 @@ void DEBUG_sCmd_action_handler(SerialCommand this_sCmd){
     DEBUG_PORT.println(adc0_is_busy);
     DEBUG_PORT.print(F("# \tadc1_is_busy = "));
     DEBUG_PORT.println(adc1_is_busy);
+    DEBUG_PORT.print(F("# \tadc0_group_is_ready = "));
+    DEBUG_PORT.println(adc0_group_is_ready);
+    DEBUG_PORT.print(F("# \tadc1_group_is_ready = "));
+    DEBUG_PORT.println(adc1_group_is_ready);
 }
 
 void ADC_CONFIG_sCmd_action_handler(SerialCommand this_sCmd){
@@ -460,14 +512,14 @@ void ADC_SET_BUFFER_sCmd_action_handler(SerialCommand this_sCmd){
   }
   else{
     size = atol(arg);
-    bool success;
+    bool success = true;
     if (size > 0){
         //set the param depending on the config mode
         if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
-            success = _allocate_adc0_buffer(size,true);
+            success &= _allocate_adc0_buffer(size,true);
         }
         if (adc_config_mode == ADC_CONFIG_CHAN1){
-            success = _allocate_adc1_buffer(size,true);
+            success &= _allocate_adc1_buffer(size,true);
         }
         if (!success){
             this_sCmd.print(F("#ERROR: ADC.SET_BUFFER failed to allocate the requested memory!\n"));
@@ -533,8 +585,9 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     adc1_samp_iter  = 0;
     //schedule the interrupts depending on config mode and history
     int interrupt_priority = 1; //second highest
+    bool success = true;
     if (adc_config_mode == ADC_CONFIG_SYNC){
-        bool success = _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels into this buffer
+        success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels into this buffer
         if(success){
             adc_num_channels = 2;
             adc->enableInterrupts(adc_synchronizedSampleISR, interrupt_priority, ADC_0); //isr, priority=255, adc_num=-1
@@ -542,12 +595,11 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
             adc0_timer.priority(interrupt_priority);
             adc0_timer.begin(adc0_sampleGroupTimerCallback, 1000000/adc0_group_rate);   // function called by interrupt at micros interval 
-            return;
         }else{ this_sCmd.print(F("#ERROR: ADC.START failed to configure SYNC mode!\n")); return;}
     }else{
         //configure channels independently
         if (adc_chan0_is_configured){
-            bool success = _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels in this buffer
+            success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels in this buffer
             if(success){
                 adc_num_channels++; //include this channel
                 adc->setAveraging(1, ADC_0);
@@ -556,7 +608,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             }else{ this_sCmd.print(F("#ERROR: ADC.START failed to configure CHAN0 mode!\n")); return;}
         }
         if (adc_chan1_is_configured){
-            bool success = _allocate_adc1_buffer(adc1_buffer_size,false); //we interleave both channels in this buffer
+            success &= _allocate_adc1_buffer(adc1_buffer_size,false); //we interleave both channels in this buffer
             if(success){
                 adc_num_channels++; //include this channel
                 adc->setAveraging(1, ADC_1);
@@ -575,6 +627,11 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             adc1_timer.begin(adc1_sampleGroupTimerCallback, 1000000/adc1_group_rate);   // function called by interrupt at micros interval 
             interrupt_priority++; //in case we add more callbacks
         }
+        
+    }
+    //configure the mainloop for streaming
+    if (success){
+        mainloop_is_streaming_adc = true;
     }
 }
 
