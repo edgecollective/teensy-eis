@@ -41,6 +41,8 @@ void setup() {
     sCmd_USB.addCommand("ADC.SET_RATE",       ADC_SET_RATE_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.START",          ADC_START_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.STOP",           ADC_STOP_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.RELEASE",        ADC_RELEASE_sCmd_action_handler);
+    sCmd_USB.addCommand("ADC.RESET",          ADC_RESET_sCmd_action_handler);
     sCmd_USB.addCommand("T",  TEMPMON_GET_TEMP_sCmd_query_handler);
     sCmd_USB.addCommand("TEMPMON.GET_TEMP?",  TEMPMON_GET_TEMP_sCmd_query_handler);
     //--------------------------------------------------------------------------
@@ -85,6 +87,64 @@ volatile unsigned long  adc0_group_start_timestamp_micros;
 volatile unsigned long  adc1_group_start_timestamp_micros;
 volatile unsigned long  adc0_group_end_timestamp_micros;
 volatile unsigned long  adc1_group_end_timestamp_micros;
+
+void adc_set_defaults(void){
+    adc_config_mode = ADC_CONFIG_SYNC;
+    adc_chan0_is_configured = false;
+    adc_chan1_is_configured = false;
+    adc_num_timers_active = 0;
+    adc0_readPin = A0;
+    adc1_readPin = A2;
+    adc0_buffer_size = 10;
+    adc1_buffer_size = 10;
+    adc0_num_sample_groups = 1;
+    adc1_num_sample_groups = 1;
+    adc0_group_rate = 1.0;
+    adc1_group_rate = 1.0;
+    adc0_group_iter   = 0;
+    adc1_group_iter   = 0;
+    adc0_samp_iter    = 0;
+    adc1_samp_iter    = 0;
+    adc0_is_busy = false;
+    adc1_is_busy = false;
+    adc0_group_is_ready = false;
+    adc1_group_is_ready = false;
+}
+
+bool _allocate_adc0_buffer(size_t size){
+    //allocate memory for new buffer, if it hasn't been already
+    if (adc0_buffer == nullptr){
+        //DEBUG_PORT.println("malloc");
+        adc0_buffer = (uint16_t*) malloc(sizeof(uint16_t)*size);
+    } else {
+        //DEBUG_PORT.println("realloc");
+        adc0_buffer = (uint16_t *) realloc(adc0_buffer,sizeof(uint16_t)*size);
+    }
+    if (adc0_buffer == nullptr){
+        DEBUG_PORT.print(F("#ERROR: cannot allocate memory for buffer size = "));
+        DEBUG_PORT.print(size);
+        adc0_buffer_size = 0;
+        return false;
+    }
+    return true;
+}
+
+bool _allocate_adc1_buffer(size_t size){
+    //allocate memory for new buffer, if it hasn't been already
+    if (adc1_buffer == nullptr){
+        //DEBUG_PORT.println("malloc");
+        adc1_buffer = (uint16_t*) malloc(sizeof(uint16_t)*size);
+    } else {
+        //DEBUG_PORT.println("realloc");
+        adc1_buffer = (uint16_t *) realloc(adc1_buffer,sizeof(uint16_t)*size);
+    }
+    if (adc1_buffer == nullptr){
+        DEBUG_PORT.print(F("#ERROR: cannot allocate memory for buffer size = "));
+        DEBUG_PORT.print(size);
+        return false;
+    }
+    return true;
+}
 
 void adc0_sampleGroupTimerCallback(void){
     //DEBUG_PORT.print(since_setup_started_micros);
@@ -301,6 +361,8 @@ void DEBUG_sCmd_action_handler(SerialCommand this_sCmd){
     DEBUG_PORT.println(adc_config_mode);
     DEBUG_PORT.print(F("# \tadc_chan0_is_configured = "));
     DEBUG_PORT.println(adc_chan0_is_configured);
+    DEBUG_PORT.print(F("# \tadc_chan1_is_configured = "));
+    DEBUG_PORT.println(adc_chan1_is_configured);
     DEBUG_PORT.print(F("# \tadc_num_timers_active = "));
     DEBUG_PORT.println(adc_num_timers_active);
     DEBUG_PORT.print(F("# \tadc0_buffer_size = "));
@@ -437,13 +499,13 @@ void ADC_SET_SAMP_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
                 this_sCmd.print(F("#ERROR: ADC.SET_SAMP_SPEED requires 1 argument 'level'= {0,1,2,3,4}\n"));
                 return;
             }
-            //set the param depending on the config mode
-            if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setSamplingSpeed(speed,  ADC_0);
-            }
-            if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setSamplingSpeed(speed,  ADC_1);
-            }
+        }
+        //set the param depending on the config mode
+        if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setSamplingSpeed(speed,  ADC_0);
+        }
+        if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setSamplingSpeed(speed,  ADC_1);
         }
     }
 }
@@ -469,13 +531,13 @@ void ADC_SET_CONV_SPEED_sCmd_action_handler(SerialCommand this_sCmd){
                 this_sCmd.print(F("#ERROR: ADC.SET_CONV_SPEED requires 1 argument 'level'= {0,1,2,3,4}\n"));
                 return;
             }
-            //set the param depending on the config mode
-            if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setConversionSpeed(speed,  ADC_0);
-            }
-            if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setConversionSpeed(speed,  ADC_1);
-            }
+        }
+        //set the param depending on the config mode
+        if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setConversionSpeed(speed,  ADC_0);
+        }
+        if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setConversionSpeed(speed,  ADC_1);
         }
     }
 }
@@ -497,55 +559,16 @@ void ADC_SET_RES_sCmd_action_handler(SerialCommand this_sCmd){
                 this_sCmd.print(F("#ERROR: ADC.SET_RES requires 1 argument 'bits'= {8,10,12,16}\n"));
                 return;
             }
-            //set the param depending on the config mode
-            if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setResolution(bits, ADC_0);
-            }
-            if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
-                adc->setResolution(bits, ADC_1);
-            }
+        }
+        //set the param depending on the config mode
+        if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setResolution(bits, ADC_0);
+        }
+        if (adc_config_mode == ADC_CONFIG_CHAN1 || adc_config_mode == ADC_CONFIG_SYNC){
+            adc->setResolution(bits, ADC_1);
         }
     }
 }
-
-bool _allocate_adc0_buffer(size_t size, bool force_realloc){
-    //allocate memory for new buffer, if it hasn't been already
-    if (adc0_buffer == nullptr){
-        //DEBUG_PORT.println("malloc");
-        adc0_buffer = (uint16_t*) malloc(sizeof(uint16_t)*size);
-    } else if (force_realloc){
-        //DEBUG_PORT.println("realloc");
-        adc0_buffer = (uint16_t *) realloc(adc0_buffer,sizeof(uint16_t)*size);
-    }
-    if (adc0_buffer == nullptr){
-        DEBUG_PORT.print(F("#ERROR: cannot allocate memory for buffer size = "));
-        DEBUG_PORT.print(size);
-        adc0_buffer_size = 0;
-        return false;
-    }
-    adc0_buffer_size = size;
-    return true;
-}
-
-bool _allocate_adc1_buffer(size_t size, bool force_realloc){
-    //allocate memory for new buffer, if it hasn't been already
-    if (adc1_buffer == nullptr){
-        //DEBUG_PORT.println("malloc");
-        adc1_buffer = (uint16_t*) malloc(sizeof(uint16_t)*size);
-    } else if (force_realloc){
-        //DEBUG_PORT.println("realloc");
-        adc1_buffer = (uint16_t *) realloc(adc1_buffer,sizeof(uint16_t)*size);
-    }
-    if (adc1_buffer == nullptr){
-        DEBUG_PORT.print(F("#ERROR: cannot allocate memory for buffer size = "));
-        DEBUG_PORT.print(size);
-        adc1_buffer_size = 0;
-        return false;
-    }
-    adc1_buffer_size = size;
-    return true;
-}
-
 
 void ADC_SET_BUFFER_sCmd_action_handler(SerialCommand this_sCmd){
   long size;
@@ -555,17 +578,13 @@ void ADC_SET_BUFFER_sCmd_action_handler(SerialCommand this_sCmd){
   }
   else{
     size = atol(arg);
-    bool success = true;
     if (size > 0){
         //set the param depending on the config mode
         if (adc_config_mode == ADC_CONFIG_CHAN0 || adc_config_mode == ADC_CONFIG_SYNC){
-            success &= _allocate_adc0_buffer(size,true);
+            adc0_buffer_size = size;
         }
         if (adc_config_mode == ADC_CONFIG_CHAN1){
-            success &= _allocate_adc1_buffer(size,true);
-        }
-        if (!success){
-            this_sCmd.print(F("#ERROR: ADC.SET_BUFFER failed to allocate the requested memory!\n"));
+            adc1_buffer_size = size;
         }
     } else{
         this_sCmd.print(F("#ERROR: ADC.SET_BUFFER argument 'size' must be > 0!\n"));
@@ -630,9 +649,11 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     int interrupt_priority = 1; //second highest
     bool success = true;
     if (adc_config_mode == ADC_CONFIG_SYNC){
-        success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels into this buffer
+        success &= _allocate_adc0_buffer(adc0_buffer_size); //we interleave both channels into this buffer
         if(success){
             adc_num_timers_active = 2;
+            adc->setAveraging(1, ADC_0);
+            adc->setAveraging(1, ADC_1);
             adc->enableInterrupts(adc_synchronizedSampleISR, interrupt_priority, ADC_0); //isr, priority=255, adc_num=-1
             interrupt_priority++; //prefer this interrupt over the group timer
             // IntervalTimer object, ref: https://www.pjrc.com/teensy/td_timing_IntervalTimer.html
@@ -642,7 +663,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     }else{
         //configure channels independently
         if (adc_chan0_is_configured){
-            success &= _allocate_adc0_buffer(adc0_buffer_size,false); //we interleave both channels in this buffer
+            success &= _allocate_adc0_buffer(adc0_buffer_size); //we interleave both channels in this buffer
             if(success){
                 adc_num_timers_active++; //include this channel
                 adc->setAveraging(1, ADC_0);
@@ -651,7 +672,7 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
             }else{ this_sCmd.print(F("#ERROR: ADC.START failed to configure CHAN0 mode!\n")); return;}
         }
         if (adc_chan1_is_configured){
-            success &= _allocate_adc1_buffer(adc1_buffer_size,false); //we interleave both channels in this buffer
+            success &= _allocate_adc1_buffer(adc1_buffer_size); //we interleave both channels in this buffer
             if(success){
                 adc_num_timers_active++; //include this channel
                 adc->setAveraging(1, ADC_1);
@@ -693,6 +714,29 @@ void ADC_STOP_sCmd_action_handler(SerialCommand this_sCmd){
         }
     }
 }
+
+void ADC_RELEASE_sCmd_action_handler(SerialCommand this_sCmd){
+    adc->disableInterrupts();
+    adc0_timer.end();
+    adc1_timer.end();
+    if (adc0_buffer != nullptr){
+        free(adc0_buffer);
+    }
+    if (adc1_buffer != nullptr){
+        free(adc1_buffer);
+    }
+}
+
+void ADC_RESET_sCmd_action_handler(SerialCommand this_sCmd){
+    ADC_RELEASE_sCmd_action_handler(this_sCmd);
+    //restore our defaults
+    adc_set_defaults();
+    //restore the library defaults
+    delete adc;
+    adc = new ADC(); // adc object
+}
+
+
 
 void TEMPMON_GET_TEMP_sCmd_query_handler(SerialCommand this_sCmd){
     this_sCmd.println(tempmonGetTemp());
