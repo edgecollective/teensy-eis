@@ -59,7 +59,7 @@ int  adc_num_timers_active = 0;
 int  adc0_readPin = A0;
 int  adc1_readPin = A2;
 
-unsigned long   adc0_buffer_size = 12;
+unsigned long   adc0_buffer_size = 10;
 unsigned long   adc1_buffer_size = 10;
 unsigned long   adc0_num_sample_groups = 1;
 unsigned long   adc1_num_sample_groups = 1;
