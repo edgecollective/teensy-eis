@@ -59,7 +59,7 @@ int  adc_num_timers_active = 0;
 int  adc0_readPin = A0;
 int  adc1_readPin = A2;
 
-unsigned long   adc0_buffer_size = 10;
+unsigned long   adc0_buffer_size = 12;
 unsigned long   adc1_buffer_size = 10;
 unsigned long   adc0_num_sample_groups = 1;
 unsigned long   adc1_num_sample_groups = 1;
@@ -234,14 +234,14 @@ void loop() {
                     Serial.print(adc0_buffer[2*i]);
                     Serial.print(",");
                 }
-                Serial.print(adc0_buffer[i]);
+                Serial.print(adc0_buffer[2*i]);
                 Serial.print(":");
                 // ch1 at odd indices
                 for(i=0; i < adc0_buffer_size/2 - 1; i++){
                     Serial.print(adc0_buffer[2*i + 1]);
                     Serial.print(",");
                 }
-                Serial.print(adc0_buffer[i+1]);
+                Serial.print(adc0_buffer[2*i+1]);
                 adc1_is_busy = false;
             }else{
                 int i;
