@@ -78,19 +78,19 @@ void ddsISR(){
 ADC *adc = new ADC(); // adc object
 
 enum adc_config_mode_t {ADC_CONFIG_CHAN0,ADC_CONFIG_CHAN1,ADC_CONFIG_SYNC};
-adc_config_mode_t adc_config_mode = ADC_CONFIG_SYNC;
-bool adc_chan0_is_configured = false;
-bool adc_chan1_is_configured = false;
-int  adc_num_timers_active = 0;
-int  adc0_readPin = A0;
-int  adc1_readPin = A2;
+adc_config_mode_t adc_config_mode;
+bool adc_chan0_is_configured;
+bool adc_chan1_is_configured;
+int  adc_num_timers_active;
+int  adc0_readPin;
+int  adc1_readPin;
 
-unsigned long   adc0_buffer_size = 10;
-unsigned long   adc1_buffer_size = 10;
-unsigned long   adc0_num_sample_groups = 1;
-unsigned long   adc1_num_sample_groups = 1;
-float  adc0_group_rate = 1.0;
-float  adc1_group_rate = 1.0;
+unsigned long   adc0_buffer_size;
+unsigned long   adc1_buffer_size;
+unsigned long   adc0_num_sample_groups;
+unsigned long   adc1_num_sample_groups;
+float  adc0_group_rate;
+float  adc1_group_rate;
 
 uint16_t *adc0_buffer = nullptr;
 uint16_t *adc1_buffer = nullptr;
@@ -117,7 +117,7 @@ void adc_set_defaults(void){
     adc_chan0_is_configured = false;
     adc_chan1_is_configured = false;
     adc_num_timers_active = 0;
-    adc0_readPin = A0;
+    adc0_readPin = A9;
     adc1_readPin = A2;
     adc0_buffer_size = 10;
     adc1_buffer_size = 10;
@@ -150,6 +150,8 @@ bool _allocate_adc0_buffer(size_t size){
         adc0_buffer_size = 0;
         return false;
     }
+    //update size
+    adc0_buffer_size = size;
     return true;
 }
 
@@ -167,6 +169,8 @@ bool _allocate_adc1_buffer(size_t size){
         DEBUG_PORT.print(size);
         return false;
     }
+    //update size
+    adc1_buffer_size = size;
     return true;
 }
 
@@ -282,7 +286,6 @@ SerialCommand sCmd_USB(Serial, 30); // (Stream, int maxCommands)
 /******************************************************************************/
 // Setup
 
-
 void setup() {
     since_setup_started_micros = 0;
     //==========================================================================
@@ -294,6 +297,8 @@ void setup() {
     sCmd_USB.setDefaultHandler(UNRECOGNIZED_sCmd_default_handler);
     sCmd_USB.addCommand("IDN?",          IDN_sCmd_query_handler);
     sCmd_USB.addCommand("D",             DEBUG_sCmd_action_handler);// dumps data to debugging port
+    sCmd_USB.addCommand("T",                  TEMPMON_GET_TEMP_sCmd_query_handler);
+    sCmd_USB.addCommand("TEMPMON.GET_TEMP?",  TEMPMON_GET_TEMP_sCmd_query_handler);
     sCmd_USB.addCommand("DDS.WRITE_TABLE",  DDS_WRITE_TABLE_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.READ_TABLE?",  DDS_READ_TABLE_sCmd_query_handler);
     sCmd_USB.addCommand("DDS.SET_OUT_PIN",  DDS_SET_OUT_PIN_sCmd_action_handler);
@@ -313,8 +318,6 @@ void setup() {
     sCmd_USB.addCommand("ADC.STOP",           ADC_STOP_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.RELEASE",        ADC_RELEASE_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.RESET",          ADC_RESET_sCmd_action_handler);
-    sCmd_USB.addCommand("T",  TEMPMON_GET_TEMP_sCmd_query_handler);
-    sCmd_USB.addCommand("TEMPMON.GET_TEMP?",  TEMPMON_GET_TEMP_sCmd_query_handler);
     //--------------------------------------------------------------------------
     // Misc. pin setup
     pinMode(LED_BUILTIN, OUTPUT);
@@ -322,9 +325,11 @@ void setup() {
     //--------------------------------------------------------------------------
     //DDS subsystem intialization
     dds_load_sineTable8bit(); //start out with a sine wave for generation
+    
+    //--------------------------------------------------------------------------
+    //ADC subsystem intialization
+    adc_set_defaults();
 }
-
-
 
 /******************************************************************************/
 // Mainloop
@@ -864,7 +869,9 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     int interrupt_priority = 1; //second highest
     bool success = true;
     if (adc_config_mode == ADC_CONFIG_SYNC){
-        success &= _allocate_adc0_buffer(adc0_buffer_size); //we interleave both channels into this buffer
+        //we interleave both channels into this buffer,
+        //so we double its allocated size
+        success &= _allocate_adc0_buffer(2*adc0_buffer_size);
         if(success){
             adc_num_timers_active = 2;
             adc->setAveraging(1, ADC_0);

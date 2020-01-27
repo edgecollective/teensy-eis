@@ -126,6 +126,8 @@ bool _allocate_adc0_buffer(size_t size){
         adc0_buffer_size = 0;
         return false;
     }
+    //update size
+    adc0_buffer_size = size;
     return true;
 }
 
@@ -143,6 +145,8 @@ bool _allocate_adc1_buffer(size_t size){
         DEBUG_PORT.print(size);
         return false;
     }
+    //update size
+    adc1_buffer_size = size;
     return true;
 }
 
@@ -649,6 +653,9 @@ void ADC_START_sCmd_action_handler(SerialCommand this_sCmd){
     int interrupt_priority = 1; //second highest
     bool success = true;
     if (adc_config_mode == ADC_CONFIG_SYNC){
+        /we interleave both channels into this buffer,
+        //so we double its allocated size
+        success &= _allocate_adc0_buffer(2*adc0_buffer_size);
         success &= _allocate_adc0_buffer(adc0_buffer_size); //we interleave both channels into this buffer
         if(success){
             adc_num_timers_active = 2;
