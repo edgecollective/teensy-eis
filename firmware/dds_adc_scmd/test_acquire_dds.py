@@ -128,21 +128,22 @@ if __name__ == "__main__":
 #    ax.plot(ts,V0,'.-', label='2 Hz sine')
 #    #---------------------------------------------------------------------------
     #construct a triangle wave, write the table, and sample
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
     DDS.config() #default configuration
     triangle_wave = np.concatenate([np.arange(127,255,1),np.arange(255,127,-1)])
     DDS.write_table(triangle_wave)
-    DDS.start(freq=1)
-    #the following acquistion should take ~10 seconds
-    groups = ADC.acquire_groups(1000, group_rate=1000,buffer_size=1)
-    DDS.stop()
-    ts = np.array([g['t_start'] for g in groups])
-    ts = (ts - ts[0])/1e6
-    V0 = np.array([g['V0'] for g in groups])
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(ts,V0,'.-', label='1 Hz triangle')
+    for freq in [1,2,3,4,5]:
+        DDS.start(freq=freq)
+        #the following acquistion should take ~10 seconds
+        groups = ADC.acquire_groups(1000, group_rate=1000,buffer_size=1)
+        DDS.stop()
+        ts = np.array([g['t_start'] for g in groups])
+        ts = (ts - ts[0])/1e6
+        V0 = np.array([g['V0'] for g in groups])
+        ax.plot(ts,V0,'.-', label=f'{freq} Hz')
     ax.set_xlabel("Time [s]")
-    ax.set_title("DDS to ADC test - RC filter")
+    ax.set_title("DDS to ADC test Triangle Waves - RC filter")
     ax.legend()
     plt.show()
     
