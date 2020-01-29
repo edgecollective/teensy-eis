@@ -4,12 +4,42 @@ import numpy as np
 
 #import IPython;IPython.embed() # USE ME FOR DEBUGGING
 
-OUTFILE_NAME = 'out.csv'
-OUTFILE_COLS = ['X_micros','V0','V1']
-OUTFILE_FMT  = '%0.3f,%i,%i'
-
+################################################################################
 PORT = '/dev/ttyACM0'
 BAUD = 115200
+
+class ScmdComm:
+    def __init__(self, port=PORT):
+        self.ser = serial.Serial(PORT,BAUD,timeout=1)
+    
+    def send(self, cmd, endl='\n'):
+        self.ser.write(bytes(cmd+endl,'utf8'))
+
+################################################################################
+OUT_PIN  = 13
+PWM_FREQ = 10000
+PWM_RES  = 8
+
+class DDS_Driver(ScmdComm):
+    def config(self,
+               out_pin = OUT_PIN,
+               pwm_freq = PWM_FREQ,
+               pwm_res  = PWM_RES,
+              ):
+        self.send(f"DDS.SET_OUT_PIN {out_pin:d}")
+        self.send(f"DDS.SET_PWM_FREQ {pwm_freq:f}")
+        self.send(f"DDS.SET_PWM_RES {pwm_res:d}")
+        
+    def start(self, freq = None):
+        if freq is not None:
+            self.send(f"DDS.SET_FREQ {freq:f}")
+        self.send(f"DDS.START")
+        
+    def stop(self):
+        self.send(f"DDS.START")
+    
+
+################################################################################
 BUFFER = 1000
 NUM = 1
 RES = 10
@@ -17,13 +47,7 @@ RATE = 10
 CONV_SPEED = 4
 SAMP_SPEED = 0
 
-class ADC_Driver:
-    def __init__(self, port=PORT):
-        self.ser = serial.Serial(PORT,BAUD,timeout=1)
-    
-    def send(self, cmd, endl='\n'):
-        self.ser.write(bytes(cmd+endl,'utf8'))
-        
+class ADC_Driver(ScmdComm):
     def config(self,
                buffer_size = BUFFER,
                num_groups  = NUM,
@@ -59,17 +83,39 @@ class ADC_Driver:
             data['V1']       = V1
             groups.append(data)
         return groups
+################################################################################
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    OUTFILE_NAME = 'out.csv'
+    OUTFILE_COLS = ['X_micros','V0','V1']
+    OUTFILE_FMT  = '%0.3f,%i,%i'
+    
     ADC = ADC_Driver()
-    ADC.send("DDS.SET_OUT_PIN 13")
-    ADC.send("DDS.START") #this should cause built in LED to pulse at 1Hz
+    DDS = DDS_Driver()
+    
+    DDS.config() #default configuration
+    DDS.start(freq=1) #LED should pulse at 1Hz
     #the following acquistion should take ~10 seconds
-    groups = ADC.acquire_groups(100, group_rate=10,buffer_size=1)
+    groups = ADC.acquire_groups(1000, group_rate=100,buffer_size=1)
     ts = np.array([g['t_start'] for g in groups])
     ts = (ts - ts[0])/1e6
     V0 = np.array([g['V0'] for g in groups])
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.plot(ts,V0,'.-')
+    ax.plot(ts,V0,'.-', label='1 Hz')
+    #double the frequency (output doesn't need to be stopped)
+    DDS.config() #default configuration
+    DDS.start(freq=2) #LED should pulse at double the rate
+    #the following acquistion should take ~5 seconds
+    groups = ADC.acquire_groups(1000, group_rate=200,buffer_size=1)
+    DDS.stop() #LED should stop pulsing
+    ts = np.array([g['t_start'] for g in groups])
+    ts = (ts - ts[0])/1e6
+    V0 = np.array([g['V0'] for g in groups])
+    ax.plot(ts,V0,'.-', label='2 Hz')
+    ax.set_xlabel("Time [s]")
+    ax.set_title("DDS to ADC test - RC filter")
+    ax.legend()
+    plt.show()
+    
