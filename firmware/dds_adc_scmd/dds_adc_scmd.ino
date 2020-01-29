@@ -304,6 +304,7 @@ void setup() {
     sCmd_USB.addCommand("DDS.SET_OUT_PIN",  DDS_SET_OUT_PIN_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.SET_PWM_RES",  DDS_SET_PWM_RES_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.SET_PWM_FREQ", DDS_SET_PWM_FREQ_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.SET_FREQ",     DDS_SET_FREQ_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.START",        DDS_START_sCmd_action_handler);
     sCmd_USB.addCommand("DDS.STOP",         DDS_STOP_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.CONFIG",         ADC_CONFIG_sCmd_action_handler);
