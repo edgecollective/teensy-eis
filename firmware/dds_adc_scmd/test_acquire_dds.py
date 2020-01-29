@@ -36,7 +36,7 @@ class DDS_Driver(ScmdComm):
         self.send(f"DDS.START")
         
     def stop(self):
-        self.send(f"DDS.START")
+        self.send(f"DDS.STOP")
     
 
 ################################################################################
