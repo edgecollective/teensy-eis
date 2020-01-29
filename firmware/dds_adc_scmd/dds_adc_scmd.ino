@@ -299,14 +299,15 @@ void setup() {
     sCmd_USB.addCommand("D",             DEBUG_sCmd_action_handler);// dumps data to debugging port
     sCmd_USB.addCommand("T",                  TEMPMON_GET_TEMP_sCmd_query_handler);
     sCmd_USB.addCommand("TEMPMON.GET_TEMP?",  TEMPMON_GET_TEMP_sCmd_query_handler);
-    sCmd_USB.addCommand("DDS.WRITE_TABLE",  DDS_WRITE_TABLE_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.READ_TABLE?",  DDS_READ_TABLE_sCmd_query_handler);
-    sCmd_USB.addCommand("DDS.SET_OUT_PIN",  DDS_SET_OUT_PIN_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.SET_PWM_RES",  DDS_SET_PWM_RES_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.SET_PWM_FREQ", DDS_SET_PWM_FREQ_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.SET_FREQ",     DDS_SET_FREQ_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.START",        DDS_START_sCmd_action_handler);
-    sCmd_USB.addCommand("DDS.STOP",         DDS_STOP_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.FORMAT_TABLE",   DDS_FORMAT_TABLE_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.WRITE_TABLE",    DDS_WRITE_TABLE_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.READ_TABLE?",    DDS_READ_TABLE_sCmd_query_handler);
+    sCmd_USB.addCommand("DDS.SET_OUT_PIN",    DDS_SET_OUT_PIN_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.SET_PWM_RES",    DDS_SET_PWM_RES_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.SET_PWM_FREQ",   DDS_SET_PWM_FREQ_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.SET_FREQ",       DDS_SET_FREQ_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.START",          DDS_START_sCmd_action_handler);
+    sCmd_USB.addCommand("DDS.STOP",           DDS_STOP_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.CONFIG",         ADC_CONFIG_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_READ_PIN",   ADC_SET_READ_PIN_sCmd_action_handler);
     sCmd_USB.addCommand("ADC.SET_SAMP_SPEED", ADC_SET_SAMP_SPEED_sCmd_action_handler);
@@ -520,28 +521,48 @@ void DDS_SET_OUT_PIN_sCmd_action_handler(SerialCommand this_sCmd){
     }
 }
 
+void DDS_FORMAT_TABLE_sCmd_action_handler(SerialCommand this_sCmd){
+    char *arg = this_sCmd.next();
+    int args_to_read = 1;
+    int length = 0;
+    if (arg == NULL){
+        this_sCmd.print(F("#ERROR: DDS_FORMAT_TABLE requires 1 argument 'length'."));
+        return;
+    }
+    length = atoi(arg);
+    bool success = _allocate_ddsLookupTable(length);
+    if (success){
+        //initialize the table with zeros
+        for(int i=0; i < length; i++){
+            ddsLookupTable[i] = 0;
+        }
+    } else{
+         this_sCmd.print(F("#ERROR: DDS_FORMAT_TABLE failed to allocate memory."));
+    }
+}
+
 void DDS_WRITE_TABLE_sCmd_action_handler(SerialCommand this_sCmd){
     char *arg = this_sCmd.next();
     int args_to_read = 1;
-    int size = 0;
-    if (arg == NULL){
-        this_sCmd.print(F("#ERROR: DDS_WRITE_TABLE requires 1 argument 'size' and a series of that many integers, separated by spaces."));
-        return;
-    }
-    size = atoi(arg);
-    _allocate_ddsLookupTable(size);
-    args_to_read = size; //continue to read this many args
-    while(args_to_read > 0){
-        arg = this_sCmd.next();
-        if (arg == NULL){
-            this_sCmd.print(F("#ERROR: DDS_WRITE_TABLE requires 1 argument 'size' and a series of that many integers, separated by spaces."));
+    long addr;
+    uint16_t value;
+    if (arg != NULL){
+        addr = atoi(arg);       //FIXME how to check for errors?
+        if (addr < 0 || addr >= ddsLookupTableLength){
+            //bad addr
+            this_sCmd.print(F("#ERROR: DDS_WRITE_TABLE bad 'addr'(long), should >= 0 and < ddsLookupTableLength."));
             return;
         }
-        uint16_t value = atoi(arg);
-        //FIXME how to check for errors?
-        ddsLookupTable[size-args_to_read] = value;
-        args_to_read--;
+        arg = this_sCmd.next();
+        if (arg != NULL){
+            value = atoi(arg);  //FIXME how to check for errors?
+            ddsLookupTable[addr] = value;
+            return; //skip error condition at end
+        }
     }
+    //parsing failure
+    this_sCmd.print(F("#ERROR: DDS_WRITE_TABLE requires 2 unsigned integer arguments 'addr'(long) < ddsLookupTableLength and 'value' (uint16_t)."));
+    return;
 }
 
 void DDS_READ_TABLE_sCmd_query_handler(SerialCommand this_sCmd){

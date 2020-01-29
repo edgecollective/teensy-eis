@@ -7,12 +7,15 @@ import numpy as np
 ################################################################################
 PORT = '/dev/ttyACM0'
 BAUD = 115200
+DEBUG = True
 
 class ScmdComm:
     def __init__(self, port=PORT):
         self.ser = serial.Serial(PORT,BAUD,timeout=1)
     
     def send(self, cmd, endl='\n'):
+        if DEBUG:
+            print(f"-> {cmd}")
         self.ser.write(bytes(cmd+endl,'utf8'))
 
 ################################################################################
@@ -21,6 +24,13 @@ PWM_FREQ = 10000
 PWM_RES  = 8
 
 class DDS_Driver(ScmdComm):
+
+    def write_table(self, values):
+        table_len = len(values)
+        self.send(f"DDS.FORMAT_TABLE {table_len}")
+        for addr,v in enumerate(values):
+            self.send(f"DDS.WRITE_TABLE {addr} {v:d}")
+        
     def config(self,
                out_pin = OUT_PIN,
                pwm_freq = PWM_FREQ,
@@ -93,9 +103,35 @@ if __name__ == "__main__":
     
     ADC = ADC_Driver()
     DDS = DDS_Driver()
-    
+
+#    #---------------------------------------------------------------------------
+#    DDS.config() #default configuration
+#    DDS.start(freq=1) #LED should pulse at 1Hz
+#    #the following acquistion should take ~10 seconds
+#    groups = ADC.acquire_groups(1000, group_rate=100,buffer_size=1)
+#    ts = np.array([g['t_start'] for g in groups])
+#    ts = (ts - ts[0])/1e6
+#    V0 = np.array([g['V0'] for g in groups])
+#    fig = plt.figure()
+#    ax = fig.add_subplot(111)
+#    ax.plot(ts,V0,'.-', label='1 Hz sine')
+#    #---------------------------------------------------------------------------
+#    #double the frequency (output doesn't need to be stopped)
+#    DDS.config() #default configuration
+#    DDS.start(freq=2) #LED should pulse at double the rate
+#    #the following acquistion should take ~5 seconds
+#    groups = ADC.acquire_groups(1000, group_rate=200,buffer_size=1)
+#    DDS.stop() #LED should stop pulsing
+#    ts = np.array([g['t_start'] for g in groups])
+#    ts = (ts - ts[0])/1e6
+#    V0 = np.array([g['V0'] for g in groups])
+#    ax.plot(ts,V0,'.-', label='2 Hz sine')
+#    #---------------------------------------------------------------------------
+    #construct a triangle wave, write the table, and sample
     DDS.config() #default configuration
-    DDS.start(freq=1) #LED should pulse at 1Hz
+    triangle_wave = np.concatenate([np.arange(127,255,1),np.arange(255,0,-1),np.arange(0,127,1)])
+    DDS.write_table(triangle_wave)
+    DDS.start(freq=1)
     #the following acquistion should take ~10 seconds
     groups = ADC.acquire_groups(1000, group_rate=100,buffer_size=1)
     ts = np.array([g['t_start'] for g in groups])
@@ -103,17 +139,7 @@ if __name__ == "__main__":
     V0 = np.array([g['V0'] for g in groups])
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ax.plot(ts,V0,'.-', label='1 Hz')
-    #double the frequency (output doesn't need to be stopped)
-    DDS.config() #default configuration
-    DDS.start(freq=2) #LED should pulse at double the rate
-    #the following acquistion should take ~5 seconds
-    groups = ADC.acquire_groups(1000, group_rate=200,buffer_size=1)
-    DDS.stop() #LED should stop pulsing
-    ts = np.array([g['t_start'] for g in groups])
-    ts = (ts - ts[0])/1e6
-    V0 = np.array([g['V0'] for g in groups])
-    ax.plot(ts,V0,'.-', label='2 Hz')
+    ax.plot(ts,V0,'.-', label='1 Hz triangle')
     ax.set_xlabel("Time [s]")
     ax.set_title("DDS to ADC test - RC filter")
     ax.legend()
