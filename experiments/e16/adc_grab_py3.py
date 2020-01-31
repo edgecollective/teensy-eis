@@ -8,7 +8,7 @@ OUTFILE_NAME = 'dummy_out.csv'
 OUTFILE_COLS = ['X_micros','V0','V1']
 OUTFILE_FMT  = '%0.3f,%i,%i'
 
-PORT = '/dev/ttyACM1'
+PORT = '/dev/ttyACM0'
 BAUD = 115200
 BUFFER = 1000
 NUM = 1
@@ -64,6 +64,7 @@ class ADC_Driver:
             data['V1']       = V1
             groups.append(data)
         ax.set_xlabel("Time [s]")
+        plt.xlim(0,1024)
         #ax.set_title("RC filter - R=10K, C=10uF; PWM_FREQ="+str(PWM_FREQ)+"; PWM_RES="+str(PWM_RES))
         ax.legend()
         plt.show()
